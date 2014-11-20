@@ -14,6 +14,10 @@ DEPS_DIR ?= $(shell pwd)/.deps
 DEPS_PREFIX ?= $(DEPS_DIR)/usr
 DEPS_BIN ?= $(DEPS_PREFIX)/bin
 
+# Nvim
+NVIM_URL ?= https://github.com/neovim/neovim/releases/download/nightly/neovim-linux64.tar.gz
+NVIM ?= $(DEPS_BIN)/nvim
+
 # Lua-related configuration
 LUA_URL ?= http://www.lua.org/ftp/lua-5.1.5.tar.gz
 LUAROCKS_URL ?= https://github.com/keplerproject/luarocks/archive/v2.2.0.tar.gz
@@ -25,7 +29,7 @@ MSGPACK ?= $(DEPS_PREFIX)/lib/luarocks/rocks/lua-messagepack
 COXPCALL ?= $(DEPS_PREFIX)/lib/luarocks/rocks/coxpcall
 
 # Libuv configuration
-LIBUV_URL ?= https://github.com/joyent/libuv/archive/v0.11.29.tar.gz 
+LIBUV_URL ?= https://github.com/joyent/libuv/archive/v1.0.0.tar.gz 
 LIBUV ?= $(DEPS_PREFIX)/lib/libuv.a
 LIBUV_LINK_FLAGS = $(shell PKG_CONFIG_PATH='$(DEPS_PREFIX)/lib/pkgconfig'\
 									 pkg-config libuv --libs)
@@ -49,10 +53,10 @@ UNTGZ ?= tar xfz - --strip-components=1
  
 all: deps nvim/loop.so
 
-deps: | $(LIBUV) $(MSGPACK) $(COXPCALL) $(BUSTED)
+deps: | $(LIBUV) $(NVIM) $(MSGPACK) $(COXPCALL) $(BUSTED)
 
 test: all
-	$(BUSTED) '--lpath=./nvim/?.lua;' '--cpath=./nvim/?.so;' test
+	PATH="$(DEPS_BIN):$$PATH" $(BUSTED) '--lpath=./nvim/?.lua;' '--cpath=./nvim/?.so;' test
 
 valgrind: all
 	eval $$($(LUAROCKS) path); \
@@ -103,6 +107,10 @@ $(LIBUV):
 	$(FETCH) $(LIBUV_URL) | $(UNTGZ) && \
 	./autogen.sh && ./configure --with-pic --disable-shared \
 		--prefix=$(DEPS_PREFIX) && make install
+
+$(NVIM):
+	cd $(DEPS_PREFIX); \
+	$(FETCH) $(NVIM_URL) | $(UNTGZ)
 
 $(DEPS_DIR)/src/libuv:
 	mkdir -p $@ && cd $@ && \
