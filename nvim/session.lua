@@ -1,4 +1,5 @@
 require('coxpcall')
+local uv = require('luv')
 
 
 local Session = {}
@@ -39,10 +40,12 @@ local function coroutine_exec(func, ...)
   end))
 end
 
-function Session.new(async_session)
+function Session.new(msgpack_rpc_stream)
   return setmetatable({
-    _async_session = async_session,
+    _msgpack_rpc_stream = msgpack_rpc_stream,
     _pending_messages = {},
+    _prepare = uv.new_prepare(),
+    _timer = uv.new_timer(),
     _is_running = false
   }, Session)
 end
@@ -50,12 +53,12 @@ end
 function Session:next_message(timeout)
   local function on_request(method, args, response)
     table.insert(self._pending_messages, {'request', method, args, response})
-    self._async_session:stop()
+    uv.stop()
   end
 
   local function on_notification(method, args)
     table.insert(self._pending_messages, {'notification', method, args})
-    self._async_session:stop()
+    uv.stop()
   end
 
   if self._is_running then
@@ -66,12 +69,12 @@ function Session:next_message(timeout)
     return table.remove(self._pending_messages, 1)
   end
 
-  self._async_session:run(on_request, on_notification, timeout)
+  self:_run(on_request, on_notification, timeout)
   return table.remove(self._pending_messages, 1)
 end
 
 function Session:notify(method, ...)
-  self._async_session:notify(method, {...})
+  self._msgpack_rpc_stream:write(method, {...})
 end
 
 function Session:request(method, ...)
@@ -120,21 +123,21 @@ function Session:run(request_cb, notification_cb, setup_cb, timeout)
     end
   end
 
-  self._async_session:run(on_request, on_notification, timeout)
+  self:_run(on_request, on_notification, timeout)
   self._is_running = false
 end
 
 function Session:stop()
-  self._async_session:stop()
+  uv.stop()
 end
 
 function Session:exit()
-  self._async_session:exit()
+  self._msgpack_rpc_stream:close()
 end
 
 function Session:_yielding_request(method, args)
   return coroutine.yield(function(co)
-    self._async_session:request(method, args, function(err, result)
+    self._msgpack_rpc_stream:write(method, args, function(err, result)
       resume(co, err, result)
     end)
   end)
@@ -151,14 +154,28 @@ function Session:_blocking_request(method, args)
     table.insert(self._pending_messages, {'notification', method, args})
   end
 
-  self._async_session:request(method, args, function(e, r)
+  self._msgpack_rpc_stream:write(method, args, function(e, r)
     err = e
     result = r
-    self._async_session:stop()
+    uv.stop()
   end)
 
-  self._async_session:run(on_request, on_notification)
+  self:_run(on_request, on_notification)
   return err, result
+end
+
+function Session:_run(request_cb, notification_cb, timeout)
+  if type(timeout) == 'number' then
+    self._prepare:start(function()
+      self._timer:start(timeout, 0, function()
+        uv.stop()
+      end)
+      self._prepare:stop()
+    end)
+  end
+  self._msgpack_rpc_stream:read_start(request_cb, notification_cb, uv.stop)
+  uv.run()
+  self._msgpack_rpc_stream:read_stop()
 end
 
 
