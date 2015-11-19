@@ -37,7 +37,7 @@ UNTGZ ?= tar xfz - --strip-components=1
 
 all: deps
 
-deps: | $(LIBUV) $(MSGPACK) $(COXPCALL) $(BUSTED) $(LUV)
+deps: | $(MSGPACK) $(COXPCALL) $(BUSTED) $(LUV)
 
 test: all
 	$(BUSTED) -v '--lpath=./nvim/?.lua;' '--cpath=./nvim/?.so;' -o gtest test

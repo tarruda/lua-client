@@ -1,8 +1,8 @@
 package = 'nvim-client'
 version = '0.0.1-16'
 source = {
-  url = 'https://github.com/neovim/lua-client/archive/' .. version .. '.tar.gz',
-  dir = 'lua-client-' .. version,
+  url = 'https://github.com/tarruda/lua-client/archive/refactor-loop-to-use-luv.tar.gz',
+  dir = 'lua-client-refactor-loop-to-use-luv',
 }
 description = {
   summary = 'Lua client to Nvim',
@@ -13,11 +13,6 @@ dependencies = {
   'lua-messagepack',
   'luv',
   'coxpcall'
-}
-external_dependencies = {
-  LIBUV = {
-    header = 'uv.h'
-  }
 }
 
 local function make_modules()
@@ -30,33 +25,7 @@ local function make_modules()
   }
 end
 
--- based on:
--- https://github.com/diegonehab/luasocket/blob/master/luasocket-scm-0.rockspec
-local function make_plat(plat)
-  local modules = make_modules()
-  local libs = modules['nvim.loop'].libraries
-
-  if plat == 'freebsd' then
-    libs[#libs + 1] = 'kvm'
-  end
-
-  if plat == 'linux' then
-    libs[#libs + 1] = 'rt'
-    libs[#libs + 1] = 'dl'
-  end
-
-  return { modules = modules }
-end
-
 build = {
   type = 'builtin',
-  -- default (platform-agnostic) configuration
   modules = make_modules(),
-
-  -- per-platform overrides
-  -- https://github.com/keplerproject/luarocks/wiki/Platform-agnostic-external-dependencies
-  platforms = {
-    linux = make_plat('linux'),
-    freebsd = make_plat('freebsd')
-  }
 }
