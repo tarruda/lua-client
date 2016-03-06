@@ -1,15 +1,17 @@
-local ChildProcessStream = require('nvim.child_process_stream')
+local uv = require('nvim.uv')
 local Session = require('nvim.session')
 
 local nvim_prog = os.getenv('NVIM_PROG') or 'nvim'
 
 describe('Session', function()
   local proc_stream, msgpack_stream, msgpack_rpc_stream, session, exited
+  local loop = uv.Loop()
 
   before_each(function()
+    collectgarbage()
     exited = false
-    proc_stream = ChildProcessStream.spawn({nvim_prog, '-u', 'NONE', '--embed'})
-    session = Session.new(proc_stream)
+    proc_stream = loop:spawn({nvim_prog, '-u', 'NONE', '--embed'})
+    session = Session.new(loop, proc_stream)
   end)
 
   after_each(function()
@@ -101,7 +103,7 @@ describe('Session', function()
       responded = true
     end, 50)
     assert.is_false(responded)
-    session:exit()
+    session:close()
     exited = true
   end)
 end)
@@ -114,11 +116,13 @@ i_min = i_min + 1
 
 describe('stdio', function()
   it('sends and receive data through stdout/stdin', function()
-    local proc_stream = ChildProcessStream.spawn({
+    collectgarbage()
+    local loop = uv.Loop()
+    local proc_stream = loop:spawn({
       arg[i_min],
       'test/stdio_fixture.lua'
     })
-    local session = Session.new(proc_stream)
+    local session = Session.new(loop, proc_stream)
     session:notify('a', 0, 1)
     assert.are.same({'notification', 'b', {2, 3}}, session:next_message())
     session:notify('c', 4, 5)

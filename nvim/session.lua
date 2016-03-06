@@ -1,6 +1,4 @@
 require('coxpcall')
-local uv = require('luv')
-local native = require('nvim.native')
 local MsgpackStream = require('nvim.msgpack_stream')
 local MsgpackRpcStream = require('nvim.msgpack_rpc_stream')
 
@@ -42,12 +40,11 @@ local function coroutine_exec(func, ...)
   end))
 end
 
-function Session.new(stream)
+function Session.new(loop, stream)
   return setmetatable({
+    _loop = loop,
     _msgpack_rpc_stream = MsgpackRpcStream.new(MsgpackStream.new(stream)),
     _pending_messages = {},
-    _prepare = uv.new_prepare(),
-    _timer = uv.new_timer(),
     _is_running = false
   }, Session)
 end
@@ -55,12 +52,12 @@ end
 function Session:next_message(timeout)
   local function on_request(method, args, response)
     table.insert(self._pending_messages, {'request', method, args, response})
-    uv.stop()
+    self._loop:stop()
   end
 
   local function on_notification(method, args)
     table.insert(self._pending_messages, {'notification', method, args})
-    uv.stop()
+    self._loop:stop()
   end
 
   if self._is_running then
@@ -130,20 +127,15 @@ function Session:run(request_cb, notification_cb, setup_cb, timeout)
 end
 
 function Session:stop()
-  uv.stop()
+  self._loop:stop()
 end
 
-function Session:exit()
-  self._exited = true
-  if not self._timer:is_closing() then self._timer:close() end
-  if not self._prepare:is_closing() then self._prepare:close() end
-  self._msgpack_rpc_stream:close()
-  uv.run('nowait')
-  local pid = self._msgpack_rpc_stream._msgpack_stream._stream._pid
-  if pid == nil then
-    return  -- not a child stream
-  end
-  native.pid_wait(pid)
+function Session:close(kill)
+  self._msgpack_rpc_stream:close(kill)
+end
+
+function Session:exit(kill)
+  return self:close(kill)
 end
 
 function Session:_yielding_request(method, args)
@@ -168,7 +160,7 @@ function Session:_blocking_request(method, args)
   self._msgpack_rpc_stream:write(method, args, function(e, r)
     err = e
     result = r
-    uv.stop()
+    self._loop:stop()
   end)
 
   self:_run(on_request, on_notification)
@@ -176,16 +168,10 @@ function Session:_blocking_request(method, args)
 end
 
 function Session:_run(request_cb, notification_cb, timeout)
-  if type(timeout) == 'number' then
-    self._prepare:start(function()
-      self._timer:start(timeout, 0, function()
-        uv.stop()
-      end)
-      self._prepare:stop()
-    end)
-  end
-  self._msgpack_rpc_stream:read_start(request_cb, notification_cb, uv.stop)
-  uv.run()
+  self._msgpack_rpc_stream:read_start(request_cb, notification_cb, function()
+    self._loop:stop()
+  end)
+  self._loop:run(timeout)
   self._msgpack_rpc_stream:read_stop()
 end
 

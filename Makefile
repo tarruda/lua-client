@@ -21,9 +21,13 @@ LUA_TARGET ?= linux
 LUA ?= $(DEPS_BIN)/lua
 LUAROCKS ?= $(DEPS_BIN)/luarocks
 BUSTED ?= $(DEPS_BIN)/busted
-LUV ?= $(DEPS_PREFIX)/lib/luarocks/rocks/luv
 MSGPACK ?= $(DEPS_PREFIX)/lib/luarocks/rocks/lua-messagepack
 COXPCALL ?= $(DEPS_PREFIX)/lib/luarocks/rocks/coxpcall
+
+# Libuv configuration
+LIBUV_URL ?= https://github.com/libuv/libuv/archive/v1.8.0.tar.gz
+LIBUV ?= $(DEPS_PREFIX)/lib/libuv.a
+LIBUV_LINK_FLAGS = $(shell PKG_CONFIG_PATH='$(DEPS_PREFIX)/lib/pkgconfig' pkg-config libuv --libs)
 
 # Compilation
 CC ?= gcc
@@ -42,12 +46,21 @@ FETCH ?= curl -L -o -
 UNTGZ ?= tar xfz - --strip-components=1
 
 
-all: deps nvim/native.so
+all: deps nvim/uv.so
 
-deps: | $(MSGPACK) $(COXPCALL) $(BUSTED) $(LUV)
+deps: | $(LIBUV) $(MSGPACK) $(COXPCALL) $(BUSTED)
 
 test: all
 	$(BUSTED) -v '--lpath=./nvim/?.lua;' '--cpath=./nvim/?.so;' -o gtest test
+
+gdb: all
+	eval $$($(LUAROCKS) path); \
+	gdb -x .gdb \
+		--args $(LUA) \
+		$(DEPS_PREFIX)/lib/luarocks/rocks/busted/2.0.rc11-0/bin/busted \
+		'--lpath=./nvim/?.lua;' \
+		'--cpath=./nvim/?.so;' \
+		test
 
 valgrind: all
 	eval $$($(LUAROCKS) path); \
@@ -62,18 +75,15 @@ clean:
 distclean: clean
 	rm -rf $(DEPS_DIR)
 
-nvim/native.o: nvim/native.c $(LUA) $(LIBUV)
+nvim/uv.o: nvim/uv.c $(LUA) $(LIBUV)
 	$(CC) $(CFLAGS) -o $@ -c $< $(DEPS_INCLUDE_FLAGS)
 
-nvim/native.so: nvim/native.o
-	$(CC) $(LDFLAGS) $< -o $@
+nvim/uv.so: nvim/uv.o
+	$(CC) $(LDFLAGS) $< -o $@ $(LIBUV_LINK_FLAGS)
 
 $(BUSTED): | $(LUAROCKS)
 	$(LUAROCKS) install busted
 	$(LUAROCKS) install inspect  # helpful for debugging
-
-$(LUV): $(LUAROCKS)
-	$(LUAROCKS) install luv
 
 $(MSGPACK): $(LUAROCKS)
 	$(LUAROCKS) install lua-messagepack
@@ -94,5 +104,16 @@ $(LUA):
 	$(FETCH) $(LUA_URL) | $(UNTGZ) && \
 	sed -i -e '/^CFLAGS/s/-O2/-g/' src/Makefile && \
 	make $(LUA_TARGET) install INSTALL_TOP=$(DEPS_PREFIX)
+
+$(LIBUV):
+	dir="$(DEPS_DIR)/src/libuv"; \
+	mkdir -p $$dir && cd $$dir && \
+	$(FETCH) $(LIBUV_URL) | $(UNTGZ) && \
+	./autogen.sh && ./configure --with-pic --disable-shared \
+		--prefix=$(DEPS_PREFIX) && make install
+
+$(DEPS_DIR)/src/libuv:
+	mkdir -p $@ && cd $@ && \
+	$(FETCH) $(LIBUV_URL) | $(UNTGZ) || rm -rf $@
 
 .PHONY: all deps test valgrind clean distclean

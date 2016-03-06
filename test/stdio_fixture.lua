@@ -12,11 +12,12 @@ package.cpath =
   .. package.cpath
 local assert = require("luassert")
 
-local StdioStream = require('nvim.stdio_stream')
+local uv = require('nvim.uv')
 local Session = require('nvim.session')
 
-local stdio_stream = StdioStream.open()
-local session = Session.new(stdio_stream)
+local loop = uv.Loop()
+local stdio_stream = loop:stdio()
+local session = Session.new(loop, stdio_stream)
 
 assert.are.same({'notification', 'a', {0, 1}}, session:next_message())
 session:notify('b', 2, 3)
